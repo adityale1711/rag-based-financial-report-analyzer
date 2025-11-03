@@ -1,0 +1,10 @@
+streamlit>=1.28.0
+pandas>=2.0.0
+plotly>=5.15.0
+openai>=1.0.0
+python-dotenv>=1.0.0
+dependency-injector>=4.41.0
+pdfplumber>=0.10.0
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+tiktoken>=0.5.0
