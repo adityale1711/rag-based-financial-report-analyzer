@@ -136,22 +136,22 @@ class ConfigLoader:
             try:
                 # Handle specific mappings for nested structures first
                 key_mapping = {
-                    'OPENAI_API_KEY': ('openai', 'api_key'),
-                    'DATA_URL': ('data', 'url'),
-                    'ZIP_PASSWORD': ('data', 'zip_password'),
-                    'PERSIST_DIRECTORY': ('paths', 'persist_directory'),
-                    'CHROMA_DB_COLLECTION_NAME': ('chroma', 'collection_name'),
-                    'RAG_ANSWER_PROMPT_PATH': ('paths', 'rag_answer_prompt_path'),
-                    'RAG_PROMPT_PATH': ('paths', 'rag_prompt_path'),
-                    'LOG_DIR': ('paths', 'log_dir'),
-                    'LOG_FILE_NAME': ('paths', 'log_file_name'),
-                    'LLM_MODEL': ('llm', 'model'),
-                    'LLM_TEMPERATURE': ('llm', 'temperature'),
-                    'MAX_COMPLETION_TOKENS': ('llm', 'max_completion_tokens'),
-                    'MAX_TOKENS': ('llm', 'max_tokens'),
-                    'EMBEDDING_MODEL': ('embedding', 'model'),
-                    'DEFAULT_CONFIDENCE_SCORE': ('rag', 'default_confidence_score'),
-                    'MIN_CONFIDENCE_SCORE': ('rag', 'min_confidence_score')
+                    'OPENAI_API_KEY': ('openai', 'OPENAI_API_KEY'),
+                    'DATA_URL': ('data', 'DATA_URL'),
+                    'ZIP_PASSWORD': ('data', 'ZIP_PASSWORD'),
+                    'PERSIST_DIRECTORY': ('paths', 'PERSIST_DIRECTORY'),
+                    'CHROMA_DB_COLLECTION_NAME': ('chroma', 'CHROMA_DB_COLLECTION_NAME'),
+                    'RAG_ANSWER_PROMPT_PATH': ('paths', 'RAG_ANSWER_PROMPT_PATH'),
+                    'RAG_PROMPT_PATH': ('paths', 'RAG_PROMPT_PATH'),
+                    'LOG_DIR': ('paths', 'LOG_DIR'),
+                    'LOG_FILE_NAME': ('paths', 'LOG_FILE_NAME'),
+                    'LLM_MODEL': ('llm', 'LLM_MODEL'),
+                    'LLM_TEMPERATURE': ('llm', 'LLM_TEMPERATURE'),
+                    'MAX_COMPLETION_TOKENS': ('llm', 'MAX_COMPLETION_TOKENS'),
+                    'MAX_TOKENS': ('llm', 'MAX_TOKENS'),
+                    'EMBEDDING_MODEL': ('embedding', 'EMBEDDING_MODEL'),
+                    'DEFAULT_CONFIDENCE_SCORE': ('rag', 'DEFAULT_CONFIDENCE_SCORE'),
+                    'MIN_CONFIDENCE_SCORE': ('rag', 'MIN_CONFIDENCE_SCORE')
                 }
 
                 # Check if key has a specific mapping
