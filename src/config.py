@@ -50,16 +50,9 @@ class Config:
 
     def _validate(self) -> None:
         """Validate all configuration values."""
-        # Validate required fields
-        required_fields = [
-            'openai_api_key', 'persist_directory', 'rag_answer_prompt_path',
-            'rag_prompt_path', 'log_dir', 'log_file_name'
-        ]
-
-        for field in required_fields:
-            value = getattr(self, field)
-            if not value:
-                raise ValueError(f"Required configuration field '{field}' is missing or empty")
+        # Validate required fields (only API key is strictly required)
+        if not self.openai_api_key:
+            raise ValueError("OpenAI API key is required")
 
         # Validate numeric ranges
         if not 0.0 <= self.llm_temperature <= 2.0:
@@ -77,23 +70,41 @@ class Config:
         if self.max_tokens <= 0:
             raise ValueError(f"Max tokens must be positive, got {self.max_tokens}")
 
-        # Validate paths exist
+        # Set default values for missing fields (cloud-friendly)
+        if not self.persist_directory:
+            self.persist_directory = "/tmp/chroma_db"
+        if not self.chroma_db_collection_name:
+            self.chroma_db_collection_name = "financial_documents"
+        if not self.rag_answer_prompt_path:
+            self.rag_answer_prompt_path = "prompts/infrastructure/external/rag_answer_prompt.txt"
+        if not self.rag_prompt_path:
+            self.rag_prompt_path = "prompts/application/services/rag_prompt.txt"
+        if not self.log_dir:
+            self.log_dir = "/tmp/logs"
+        if not self.log_file_name:
+            self.log_file_name = "financial_analyzer.log"
+
+        # Validate and create directories
         self._validate_paths()
 
     def _validate_paths(self) -> None:
         """Validate that required paths and files exist."""
-        # Check if prompt files exist
-        if not os.path.exists(self.rag_answer_prompt_path):
-            raise ValueError(f"RAG answer prompt file not found: {self.rag_answer_prompt_path}")
+        # For cloud deployment, we'll skip strict file existence checks
+        # as files will be available during deployment
 
-        if not os.path.exists(self.rag_prompt_path):
-            raise ValueError(f"RAG prompt file not found: {self.rag_prompt_path}")
+        # Check if prompt files exist (only for local development)
+        if not STREAMLIT_AVAILABLE:
+            if not os.path.exists(self.rag_answer_prompt_path):
+                raise ValueError(f"RAG answer prompt file not found: {self.rag_answer_prompt_path}")
 
-        # Check if document directory exists
-        if self.document_paths:
-            for doc_path in self.document_paths:
-                if not os.path.exists(doc_path):
-                    raise ValueError(f"Document file not found: {doc_path}")
+            if not os.path.exists(self.rag_prompt_path):
+                raise ValueError(f"RAG prompt file not found: {self.rag_prompt_path}")
+
+            # Check if document directory exists
+            if self.document_paths:
+                for doc_path in self.document_paths:
+                    if not os.path.exists(doc_path):
+                        raise ValueError(f"Document file not found: {doc_path}")
 
         # Create log directory if it doesn't exist
         os.makedirs(self.log_dir, exist_ok=True)
