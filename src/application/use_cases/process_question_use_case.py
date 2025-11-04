@@ -1,10 +1,11 @@
 import time
 from ...domain.entities import (
-    AnalysisResult, 
-    Question, 
+    AnalysisResult,
+    Question,
     VisualizationType,
-    Answer,
-    DataSummary
+    DocumentChunk,
+    RAGAnswer,
+    Visualization
 )
 from ...domain.repositories import (
     ChartGenerationError,
@@ -80,40 +81,25 @@ class ProcessQuestionUseCase:
 
         try:
             # Process question using RAG service
-            rag_answer, analysis_code = await self.rag_service.process_question(question)
+            rag_answer = await self.rag_service.process_question(question)
 
-            # Create data summary for RAG results
-            data_summary = DataSummary(
-                data={
-                    "sources": [
-                        {
-                            "document_name": chunk.document_name,
-                            "page_numner": chunk.page_number,
-                            "content_preview": chunk.content[:200] + "..." if len(chunk) > 200 else chunk.content
-                        }
-                        for chunk in rag_answer.sources
-                    ],
-                    "answer_text": rag_answer.text,
-                    "confidence_score": rag_answer.confidence_score
-                },
-                summary_text=f"RAG analysis completed with {len(rag_answer.sources)} source documents",
-                execution_successful=True,
-                error_message=None
-            )
+            # Get structured financial data for visualization
+            financial_data = self.rag_service.get_financial_data_for_visualization(rag_answer, question_text)
 
-            # Generate visualizations if code execution was successful
+            # Generate visualizations based on structured financial data
             visualizations = None
-            if analysis_code and analysis_code.code and not analysis_code.code.startswith("# No"):
+            if financial_data and financial_data.get("periods"):  # Only generate if we have financial data
                 try:
                     # Auto-detect best visualization type
                     chart_type = self._suggest_chart_type(question_text)
                     visualizations = self.chart_generator.generate_chart(
                         chart_type=chart_type,
-                        data=data_summary.data,
-                        title=f"Financial Analysis: {question_text[:50]}...",
+                        data=financial_data,
+                        title=f"Financial Analysis: {financial_data.get('metric', 'Financial Data')}",
                         config={
                             "description": rag_answer.text,
-                            "sources": [chunk.document_name for chunk in rag_answer.sources]
+                            "sources": [chunk.document_name for chunk in rag_answer.sources],
+                            "currency": financial_data.get("currency", "IDR")
                         }
                     )
                 except ChartGenerationError:
@@ -121,17 +107,9 @@ class ProcessQuestionUseCase:
 
             execution_time = time.time() - start_time
 
-            # Convert RAGAnswer to Answer for compatibility
-            answer = Answer(
-                text=rag_answer.text,
-                confidence_score=rag_answer.confidence_score,
-                explanation=rag_answer.explanation
-            )
-
             return AnalysisResult(
                 question=question,
-                answer=answer,
-                data_summary=data_summary,
+                rag_answer=rag_answer,
                 visualization=visualizations,
                 execution_time=execution_time
             )
@@ -139,23 +117,17 @@ class ProcessQuestionUseCase:
             # Return a result with error information
             execution_time = time.time() - start_time
 
-            error_answer = Answer(
+            # Create error RAG answer
+            error_rag_answer = RAGAnswer(
                 text=f"An error occurred while processing your question: {str(e)}",
                 confidence_score=0.0,
+                sources=[],
                 explanation="Processing failed due to an error."
-            )
-
-            error_summary = DataSummary(
-                data=None,
-                summary_text="Processing failed",
-                execution_successful=False,
-                error_message=str(e)
             )
 
             return AnalysisResult(
                 question=question,
-                answer=error_answer,
-                data_summary=error_summary,
+                rag_answer=error_rag_answer,
                 visualization=None,
                 execution_time=execution_time
             )

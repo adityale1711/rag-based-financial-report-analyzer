@@ -22,10 +22,13 @@ class StreamlitApp:
         # Initialize services and use case
         self.llm_client = OpenAIClient(
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            model="gpt-4o-mini"
+            model="gpt-4o"
         )
         self.document_processor = PDFProcessor()
-        self.vector_store = ChromaDBStore()
+        self.vector_store = ChromaDBStore(
+            embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+            openai_api_key=os.getenv("OPENAI_API_KEY")
+        )
         self.chart_generator = PlotlyChartGenerator()
 
         # Initialize RAG Service
@@ -73,7 +76,7 @@ class StreamlitApp:
 
                     # Show document stats
                     status = self.rag_service.get_status()
-                    if "docuement_stats" in status:
+                    if "document_stats" in status:
                         st.info(f"📊 Processed chunks: {status['document_stats']}")
                 except Exception as e:
                     st.error(f"❌ Failed to initialize RAG system: {str(e)}")
@@ -148,4 +151,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    

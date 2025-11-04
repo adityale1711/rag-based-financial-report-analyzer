@@ -15,11 +15,11 @@ class UIComponents:
             result: The analysis result containing the error.
         """
         st.error("❌ An Error Occurred")
-        st.write(result.answer.text)
+        st.write(result.rag_answer.text)
 
-        if result.data_summary.error_message:
+        if result.rag_answer.explanation and "error" in result.rag_answer.explanation.lower():
             with st.expander("🔍 Technical Details"):
-                st.code(result.data_summary.error_message)
+                st.code(result.rag_answer.explanation)
 
     @staticmethod
     def _render_ai_answer(
@@ -42,31 +42,26 @@ class UIComponents:
 
     @staticmethod
     def _render_source_documents(
-        data_summary
+        rag_answer
     ) -> None:
         """Render the source documents component.
 
         Args:
-            data_summary: The data summary entity containing source information.
+            rag_answer: The RAG answer containing source information.
         """
         st.subheader("📄 Source Documents")
-        st.write(data_summary.summary_text)
+        st.write(f"RAG analysis completed with {len(rag_answer.sources)} source documents")
 
-        if data_summary.data and "sources" in data_summary.data:
-            sources = data_summary.data["sources"]
-
-            if sources:
-                for i, source in enumerate(sources, 1):
-                    with st.expander(f"📖 Source {i}: {source['document_name']}", expanded=i <= 2):
-                        st.markdown(f"**Document:** {source['document_name']}")
-                        if source['page_number']:
-                            st.markdown(f"**Page:** {source['page_number']}")
-                        st.markdown("**Content Preview")
-                        st.info(source['content_preview'])
-            else:
-                st.info("No source documents were retrieved for this question.")
+        if rag_answer.sources:
+            for i, chunk in enumerate(rag_answer.sources, 1):
+                with st.expander(f"📖 Source {i}: {chunk.document_name}", expanded=i <= 2):
+                    st.markdown(f"**Document:** {chunk.document_name}")
+                    if chunk.page_number:
+                        st.markdown(f"**Page:** {chunk.page_number}")
+                    st.markdown("**Content Preview")
+                    st.info(chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content)
         else:
-            st.info("No source document information available.")\
+            st.info("No source documents were retrieved for this question.")\
 
     @staticmethod
     def _render_visualization(
@@ -102,7 +97,7 @@ class UIComponents:
         with col1:
             st.caption(f"⏱️ Execution Time: {result.execution_time:.2f} seconds")
         with col2:
-            if result.data_summary.execution_successful:
+            if result.rag_answer.confidence_score > 0.1:  # Successful analysis has reasonable confidence
                 st.caption("✅ Analysis completed successfully")
             else:
                 st.caption("❌ Analysis failed")
@@ -142,12 +137,29 @@ class UIComponents:
         # Example questions
         with st.expander("Example Questions"):
             example_questions = [
-                "Show the 5 cities with the highest total profit",
-                "Create a bar chart of total GMV per region",
-                "What is the average profit per transaction for each customer segment?",
-                "How is the trend of quantity of goods sold per month in 2014?",
-                "Compare total GMV between 'Furniture' and 'Technology' categories",
-                "What sub-categories are within the 'Office Supplies' category?"
+                "**BAR CHART EXAMPLES** (Comparison questions)",
+                "--------------------------------------------------------------------------",
+                "Compare total assets between August and November 2024",
+                "Compare total liabilities between August, October, and November 2024",
+                "Show comparison of total equity across all three months",
+                "--------------------------------------------------------------------------",
+                "**PIE CHART EXAMPLES** (Proportion/Percentage/Share questions)",
+                "--------------------------------------------------------------------------",
+                "What is the proportion of cash in total assets for August 2024?",
+                "What percentage of total assets consists of cash in November 2024?",
+                "Show the share of equity in total assets for October 2024",
+                "--------------------------------------------------------------------------",
+                "**LINE CHART EXAMPLES** (Trend/Timeline questions)",
+                "--------------------------------------------------------------------------",
+                "Show me the trend of total assets over the past three months",
+                "What is the timeline of cash position changes from August to November 2024?",
+                "Display the trend in total equity over time",
+                "--------------------------------------------------------------------------",
+                "**GENERAL ANALYSIS QUESTIONS**",
+                "--------------------------------------------------------------------------",
+                "What is the percentage change in total assets from August to November 2024?",
+                "How has the bank's financial position evolved over the past three months?",
+                "Analyze the growth in total assets across the reporting period"
             ]
             for question in example_questions:
                 st.write(f"• {question}")
@@ -164,21 +176,21 @@ class UIComponents:
     def render_analysis_result(
         analysis_result: AnalysisResult
     ) -> None:
-        """Render the analysis result including answer, data summary, and visualizations.
+        """Render the analysis result including RAG answer, sources, and visualizations.
 
         Args:
             analysis_result: The complete analysis result to display.
         """
-        if not analysis_result.data_summary.execution_successful:
+        if analysis_result.rag_answer.confidence_score <= 0.1:  # Error condition
             UIComponents._render_error(analysis_result)
 
         # Create three columns for the main results
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            UIComponents._render_ai_answer(analysis_result.answer)
+            UIComponents._render_ai_answer(analysis_result.rag_answer)
         with col2:
-            UIComponents._render_source_documents(analysis_result.data_summary)
+            UIComponents._render_source_documents(analysis_result.rag_answer)
         with col3:
             if analysis_result.visualization:
                 UIComponents._render_visualization(analysis_result.visualization)

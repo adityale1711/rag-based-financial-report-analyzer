@@ -1,7 +1,8 @@
 import chromadb
 from typing import Any
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+from openai import OpenAI
+from ... import logger
 from ...domain.entities import DocumentChunk, RetrievalResult
 from ...domain.repositories import IVectorStore, VectorStoreError
 
@@ -10,28 +11,36 @@ class ChromaDBStore(IVectorStore):
     """ChromaDB implementation of the vector store interface.
 
     This class handles storing document embeddings and retrieving relevant
-    chunks using ChromaDB and sentence-transformers for embeddings.
+    chunks using ChromaDB and OpenAI embeddings for embeddings.
     """
 
     def __init__(
         self,
         collection_name: str = "financial_documents",
         persist_directory: str = "./chroma_db",
-        embedding_model: str = "all-MiniLM-L6-v2"
+        embedding_model: str = "text-embedding-3-small",
+        openai_api_key: str = None
     ):
         """Initialize the ChromaDB store.
 
         Args:
             collection_name: Name of the ChromaDB collection.
             persist_directory: Directory to persist the database.
-            embedding_model: Name of the sentence-transformers model.
+            embedding_model: Name of the OpenAI embedding model.
+            openai_api_key: OpenAI API key for embeddings.
         """
         self.collection_name = collection_name
         self.persist_directory = persist_directory
         self.embedding_model = embedding_model
 
-        # Initialize the embedding model
-        self._embedding_model = SentenceTransformer(embedding_model)
+        # Initialize the OpenAI client for embeddings
+        if not openai_api_key:
+            import os
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+            if not openai_api_key:
+                raise ValueError("OpenAI API key must be provided or set in OPENAI_API_KEY environment variable")
+
+        self._embedding_client = OpenAI(api_key=openai_api_key)
 
         # Initialize ChromaDB client
         self._client = chromadb.PersistentClient(
@@ -45,11 +54,38 @@ class ChromaDBStore(IVectorStore):
         # Get or create the collection
         self._collection = self._get_or_create_collection()
 
+    def _generate_embeddings(
+        self,
+        texts: list[str]
+    ) -> list[list[float]]:
+        """Generate embeddings using OpenAI's API.
+
+        Args:
+            texts: List of texts to embed.
+
+        Returns:
+            List of embedding vectors.
+        """
+        try:
+            response = self._embedding_client.embeddings.create(
+                model=self.embedding_model,
+                input=texts
+            )
+            return [data.embedding for data in response.data]
+        except Exception as e:
+            raise VectorStoreError(
+                f"Failed to generate embeddings: {str(e)}"
+            ) from e
+
     def _get_or_create_collection(self):
         """Get existing collection or create new one."""
         try:
             # Try to get the existing collection
             collection = self._client.get_collection(self.collection_name)
+
+            # Check if the collection has the expected embedding dimension
+            # We can detect dimension mismatch when we try to add embeddings
+            return collection
         except Exception:
             # Create a new collection if it doesn't exist
             collection = self._client.create_collection(
@@ -91,18 +127,36 @@ class ChromaDBStore(IVectorStore):
                     "content_length": len(chunk.content)
                 }
 
+                # Add financial data if available (serialized as JSON)
+                if chunk.financial_data and chunk.financial_data.data_points:
+                    import json
+                    financial_data_dict = {
+                        "data_points": [
+                            {
+                                "metric_type": dp.metric_type,
+                                "value": dp.value,
+                                "period": dp.period,
+                                "currency": dp.currency,
+                                "confidence": dp.confidence,
+                                "raw_text": dp.raw_text
+                            }
+                            for dp in chunk.financial_data.data_points
+                        ],
+                        "document_name": chunk.financial_data.document_name,
+                        "extraction_method": chunk.financial_data.extraction_method,
+                        "confidence_score": chunk.financial_data.confidence_score,
+                        "extraction_timestamp": chunk.financial_data.extraction_timestamp
+                    }
+                    metadata["financial_data"] = json.dumps(financial_data_dict)
+
                 # Add any additional metadata
                 if chunk.metadata:
                     metadata.update(chunk.metadata)
 
                 metadatas.append(metadata)
 
-            # Generate embeddings in batch
-            embeddings = self._embedding_model.encode(
-                documents,
-                convert_to_tensor=False,
-                show_progress_bar=False
-            ).tolist()
+            # Generate embeddings using OpenAI
+            embeddings = self._generate_embeddings(documents)
 
             # Add to chromaDB
             self._collection.add(
@@ -112,9 +166,27 @@ class ChromaDBStore(IVectorStore):
                 embeddings=embeddings
             )
         except Exception as e:
-            raise VectorStoreError(
-                f"Failed to add documents to vector store: {str(e)}"
-            ) from e
+            # Check if this is an embedding dimension mismatch error
+            error_msg = str(e).lower()
+            if ("expecting embedding with dimension" in error_msg and
+                "got" in error_msg):
+                # Reset the collection and retry
+                logger.warning("Embedding dimension mismatch detected. Resetting vector store collection...")
+                self.reset_collection()
+
+                # Retry adding documents
+                logger.info("Retrying document addition with new collection...")
+                self._collection.add(
+                    ids=ids,
+                    documents=documents,
+                    metadatas=metadatas,
+                    embeddings=embeddings
+                )
+                logger.info("Documents added successfully after collection reset.")
+            else:
+                raise VectorStoreError(
+                    f"Failed to add documents to vector store: {str(e)}"
+                ) from e
         
     def search(
         self,
@@ -134,12 +206,8 @@ class ChromaDBStore(IVectorStore):
             VectorStoreError: If search fails.
         """
         try:
-            # Generate query embedding
-            query_embedding = self._embedding_model.encode(
-                [query],
-                convert_to_tensor=False,
-                show_progress_bar=False
-            ).tolist()
+            # Generate query embedding using OpenAI
+            query_embedding = self._generate_embeddings([query])
 
             # Perform the search
             results = self._collection.query(
@@ -162,12 +230,38 @@ class ChromaDBStore(IVectorStore):
                     similarity_score = 1 / (1 + distance)
                     retrieval_scores.append(similarity_score)
 
+                    # Reconstruct financial_data if available
+                    financial_data = None
+                    if "financial_data" in metadata:
+                        import json
+                        from ...domain.entities import FinancialDataPoint, StructuredFinancialData
+                        financial_data_dict = json.loads(metadata["financial_data"])
+                        data_points = [
+                            FinancialDataPoint(
+                                metric_type=dp["metric_type"],
+                                value=dp["value"],
+                                period=dp["period"],
+                                currency=dp["currency"],
+                                confidence=dp["confidence"],
+                                raw_text=dp["raw_text"]
+                            )
+                            for dp in financial_data_dict["data_points"]
+                        ]
+                        financial_data = StructuredFinancialData(
+                            data_points=data_points,
+                            document_name=financial_data_dict["document_name"],
+                            extraction_method=financial_data_dict["extraction_method"],
+                            confidence_score=financial_data_dict["confidence_score"],
+                            extraction_timestamp=financial_data_dict["extraction_timestamp"]
+                        )
+
                     chunk = DocumentChunk(
                         chunk_id=doc_id,
                         document_name=metadata.get("document_name", "unknown"),
                         content=document_text,
                         page_number=metadata.get("page_number"),
                         chunk_index=metadata.get("chunk_index"),
+                        financial_data=financial_data,
                         metadata=metadata
                     )
                     chunks.append(chunk)

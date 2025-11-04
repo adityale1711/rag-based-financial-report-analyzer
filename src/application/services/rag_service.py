@@ -2,11 +2,9 @@ import re
 from typing import Any
 from ... import logger
 from ...domain.entities import (
-    AnalyzeCode,
     DocumentChunk,
     Question,
-    RAGAnswer,
-    Answer
+    RAGAnswer
 )
 from ...domain.repositories import (
     IDocumentProcessor,
@@ -66,100 +64,34 @@ class RAGService(IRAGService):
 
         return "\n".join(context_parts)
     
-    def _extract_financial_data(
+    def _aggregate_financial_data_from_chunks(
         self,
         chunks: list[DocumentChunk],
-        question: str
+        metric_type: str
     ) -> dict:
-        """Extract financial data from document chunks for visualization.
+        """Aggregate financial data from document chunks for visualization.
 
         Args:
-            chunks: List of document chunks.
-            question: The user's question.
+            chunks: List of document chunks with pre-extracted financial data.
+            metric_type: The metric type to aggregate (e.g., "total_assets").
 
         Returns:
-            Dictionary with extracted financial data.
+            Dictionary with aggregated financial data ready for visualization.
         """
+        from src.infrastructure.document_processing.financial_extractor import FinancialDataExtractor
 
-        # Initialize financial data structure
-        financial_data = {
-            "months": [],
-            "total_assets": [],
-            "total_liabilities": [],
-            "total_equity": [],
-            "net_profit": [],
-            "cash": []
-        }
-
-        # Define patterns for financial data extraction
-        patterns = {
-            "total_assets": r"(?:total\s+assets|aset\s+total)[\s:]*([0-9.,]+)",
-            "total_liabilities": r"(?:total\s+liabilities|kewajiban\s+total)[\s:]*([0-9.,]+)",
-            "total_equity": r"(?:total\s+equity|ekuitas\s+total)[\s:]*([0-9.,]+)",
-            "net_profit": r"(?:net\s+profit|laba\s+bersih)[\s:]*([0-9.,]+)",
-            "cash": r"(?:cash|kas)[\s:]*([0-9.,]+)"
-        }
-
-        # Month extraction pattern
-        month_pattern = r"(agustus|october|oktober|november|august|oct|nov)\s+2024"
-
-        # Extract data from chunks
+        # Collect all financial data from chunks
+        financial_data_list = []
         for chunk in chunks:
-            content = chunk.content.lower()
+            if chunk.financial_data and chunk.financial_data.data_points:
+                financial_data_list.append(chunk.financial_data)
 
-            # Extract month
-            month_match = re.search(month_pattern, content)
-            if month_match:
-                month = month_match.group(1)
+        if financial_data_list:
+            return FinancialDataExtractor.aggregate_financial_data_by_metric(
+                financial_data_list, metric_type
+            )
 
-                # Normalize month names
-                if month in ["agustus", "august"]:
-                    month = "Aug 2024"
-                elif month in ["october", "oktober", "oct"]:
-                    month = "Oct 2024"
-                elif month in ["november", "nov"]:
-                    month = "Nov 2024"
-
-                if month not in financial_data["months"]:
-                    financial_data["months"].append(month)
-
-                    # Extract financial figures for this month
-                    for key, pattern in patterns.items():
-                        match = re.search(pattern, content, re.IGNORECASE)
-                        if match:
-                            value_str = match.group(1).replace(',', '').replace('.', '')
-                            try:
-                                value = float(value_str)
-                                financial_data[key].append(value)
-                            except ValueError:
-                                financial_data[key].append(0)
-                        else:
-                            financial_data[key].append(0)
-
-            # Create structured data for visualization
-            if financial_data["months"]:
-                # Determine which metric is most relevant to the question
-                question_lower = question.lower()
-                metric_key = "total_assets"  # Default metric
-
-                if "asets" in question_lower:
-                    metric_key = "total_assets"
-                elif "liabilities" in question_lower:
-                    metric_key = "total_liabilities"
-                elif "equity" in question_lower:
-                    metric_key = "total_equity"
-                elif "profit" in question_lower or "laba" in question_lower:
-                    metric_key = "net_profit"
-                elif "cash" in question_lower or "kas" in question_lower:
-                    metric_key = "cash"
-
-                structured_data = {
-                    "months": financial_data["months"],
-                    "values": financial_data[metric_key],
-                    "metric": metric_key.replace('_', ' ').title()
-                }
-
-            return None
+        return None
         
     def _build_rag_prompt(
         self,
@@ -182,6 +114,8 @@ class RAGService(IRAGService):
             with open('prompts/application/services/rag_prompt.txt', 'r') as file:
                 prompt_template = file.read()
 
+            financial_data = financial_data if financial_data else "No structured financial data available"
+
             # Format the template with the specific arguments
             prompt = prompt_template.format(
                 question=question,
@@ -197,14 +131,14 @@ class RAGService(IRAGService):
     async def _call_llm_with_rag_prompt(
         self,
         prompt: str
-    ) -> tuple[Answer, AnalyzeCode]:
+    ) -> RAGAnswer:
         """Call the LLM provider with the RAG prompt.
 
         Args:
             prompt: The complete RAG prompt.
 
         Returns:
-            Tuple containing RAG answer and analysis code.
+            RAG answer from the LLM provider.
         """
         return await self.llm_provider.generate_rag_answer(
             rag_prompt=prompt
@@ -214,7 +148,7 @@ class RAGService(IRAGService):
         self,
         question: Question,
         retrieval_result: Any
-    ) -> tuple[RAGAnswer, AnalyzeCode]:
+    ) -> RAGAnswer:
         """Generate an answer using LLM with retrieved context.
 
         Args:
@@ -222,22 +156,39 @@ class RAGService(IRAGService):
             retrieval_result: Result from vector store search.
 
         Returns:
-            Tuple containing RAG answer and analysis code.
+            RAG answer with sources.
         """
         try:
             # Build context from retrieved chunks
             context_text = self._build_context_text(retrieval_result.chunks)
 
-            # Extract financial data for visualization
-            financial_data = self._extract_financial_data(retrieval_result.chunks, question.text)
+            # Determine relevant metric type based on question
+            question_lower = question.text.lower()
+            metric_type = "total_assets"  # Default metric
 
-            # Build RAG prompt with financial data extraction instruction
+            if "asets" in question_lower:
+                metric_type = "total_assets"
+            elif "liabilities" in question_lower:
+                metric_type = "total_liabilities"
+            elif "equity" in question_lower:
+                metric_type = "total_equity"
+            elif "profit" in question_lower or "laba" in question_lower:
+                metric_type = "net_profit"
+            elif "cash" in question_lower or "kas" in question_lower:
+                metric_type = "cash"
+            elif "revenue" in question_lower or "pendapatan" in question_lower:
+                metric_type = "revenue"
+
+            # Aggregate pre-extracted financial data
+            financial_data = self._aggregate_financial_data_from_chunks(retrieval_result.chunks, metric_type)
+
+            # Build RAG prompt with aggregated financial data
             prompt = self._build_rag_prompt(question.text, context_text, financial_data)
 
             # Get LLM response
-            llm_answer, llm_code = await self._call_llm_with_rag_prompt(prompt)
+            llm_answer = await self._call_llm_with_rag_prompt(prompt)
 
-            # Convert the LLM answer to RAG answer format
+            # Create RAG answer with the retrieved sources
             rag_answer = RAGAnswer(
                 text=llm_answer.text,
                 confidence_score=llm_answer.confidence_score,
@@ -245,7 +196,7 @@ class RAGService(IRAGService):
                 explanation=llm_answer.explanation or "Answer generated based on retrieved document excerpts"
             )
 
-            return rag_answer, llm_code
+            return rag_answer
         except Exception as e:
             raise RAGServiceError(
                 f"Failed to generate answer with context: {str(e)}"
@@ -287,14 +238,14 @@ class RAGService(IRAGService):
     async def process_question(
         self,
         question: Question
-    ) -> tuple[RAGAnswer, AnalyzeCode]:
+    ) -> RAGAnswer:
         """Process a question using the RAG pipeline.
 
         Args:
             question: The user's question.
 
         Returns:
-            Tuple containing RAG answer and visualization code.
+            RAG answer based on retrieved documents.
 
         Raises:
             RAGServiceError: If processing fails.
@@ -311,28 +262,21 @@ class RAGService(IRAGService):
 
             if not retrieval_result.chunks:
                 # No relevant documents found
-                no_context_answer = RAGAnswer(
+                return RAGAnswer(
                     text=f"I'm sorry, but I couldn't find relevant information in the financial documents to answer your question about: '{question.text}'.\n"
                           f"Please try rephrasing your question or asking about specific financial figures or terms that might be in the documents.",
                     confidence_score=0.1,
                     sources=[],
-                    explanation="No relevant document were retrieved."
+                    explanation="No relevant documents were retrieved."
                 )
-
-                no_code = AnalyzeCode(
-                    code="# No visualization - no relevant data found",
-                    description="No visualization generated as no relevant information was found."
-                )
-
-                return no_context_answer, no_code
 
             # Generate answer using LLM
-            rag_answer, analysis_code = await self._generate_answer_with_context(
+            rag_answer = await self._generate_answer_with_context(
                 question=question,
                 retrieval_result=retrieval_result
             )
 
-            return rag_answer, analysis_code
+            return rag_answer
         except Exception as e:
             raise RAGServiceError(
                 f"Failed to process question: {str(e)}"
@@ -346,6 +290,40 @@ class RAGService(IRAGService):
         """
         return self._is_initialized
     
+    def get_financial_data_for_visualization(
+        self,
+        rag_answer: RAGAnswer,
+        question: str
+    ) -> dict:
+        """Extract structured financial data from RAG answer for visualization.
+
+        Args:
+            rag_answer: The RAG answer containing source chunks.
+            question: The original user question.
+
+        Returns:
+            Dictionary with financial data ready for visualization.
+        """
+        # Determine relevant metric type based on question
+        question_lower = question.lower()
+        metric_type = "total_assets"  # Default metric
+
+        if "asets" in question_lower:
+            metric_type = "total_assets"
+        elif "liabilities" in question_lower:
+            metric_type = "total_liabilities"
+        elif "equity" in question_lower:
+            metric_type = "total_equity"
+        elif "profit" in question_lower or "laba" in question_lower:
+            metric_type = "net_profit"
+        elif "cash" in question_lower or "kas" in question_lower:
+            metric_type = "cash"
+        elif "revenue" in question_lower or "pendapatan" in question_lower:
+            metric_type = "revenue"
+
+        # Aggregate pre-extracted financial data from RAG answer sources
+        return self._aggregate_financial_data_from_chunks(rag_answer.sources, metric_type)
+
     def get_status(self) -> dict[str, Any]:
         """Get the current status of the RAG service.
 

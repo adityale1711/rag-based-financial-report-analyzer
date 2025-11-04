@@ -9,18 +9,15 @@ INSTRUCTIONS:
 1. Answer the question based ONLY on the provided context from the financial documents.
 2. If the context doesn't contain enough information to answer the question completely, acknowledge this limitation.
 3. Provide specific numbers, dates, and figures from the documents when available.
-4. Create a visualization using the provided financial data structure to illustrate your answer.
-5. Format your response in two parts:
-   - First: A clear text answer explaining your findings
-   - Second: Python code for visualization using matplotlib or plotly
+4. Show your calculation work when computing percentages or changes.
+5. Format your response as clear text explanation.
 
-FINANCIAL DATA FOR VISUALIZATION:
-{financial_data if financial_data else "No structured financial data available"}
+NOTE: The system will automatically generate appropriate visualizations based on the financial data extracted from the documents. You do NOT need to generate Python code.
 
-Visualization requirements:
-- Use matplotlib or plotly for creating charts
-- Create appropriate chart types (bar chart for comparisons, line chart for trends)
-- Label axes clearly and include a title
-- Use the financial data provided above
+EXTRACTION GUIDELINES:
+- Look for specific financial figures (assets, liabilities, equity, profit, etc.)
+- Note the time periods mentioned (August, October, November 2024)
+- Provide exact figures when available
+- Show percentage calculations clearly when comparing values
 
 Your response should be helpful, accurate, and based solely on the provided document excerpts.

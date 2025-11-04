@@ -4,6 +4,7 @@ from typing import Any
 from pathlib import Path
 from ...domain.entities import DocumentChunk
 from ...domain.repositories import IDocumentProcessor, DocumentProcessingError
+from .financial_extractor import FinancialDataExtractor
 
 
 class PDFProcessor(IDocumentProcessor):
@@ -13,7 +14,7 @@ class PDFProcessor(IDocumentProcessor):
     to extract text and create chunks for RAG implementation.
     """
 
-    def ___init__(self):
+    def __init__(self):
         """Initialize the PDF processor."""
         pass
 
@@ -67,15 +68,22 @@ class PDFProcessor(IDocumentProcessor):
                                     doc_name, page_num, chunk_idx
                                 )
 
+                                # Extract financial data from this chunk
+                                financial_data = FinancialDataExtractor.extract_financial_data_from_text(
+                                    chunk_text, doc_name
+                                )
+
                                 chunk = DocumentChunk(
                                     chunk_id=chunk_id,
                                     document_name=doc_name,
                                     content=chunk_text.strip(),
                                     page_number=page_num,
                                     chunk_index=chunk_idx,
+                                    financial_data=financial_data if financial_data.data_points else None,
                                     metadata={
                                         "page_num": page_num,
-                                        "total_chunks_on_page": len(text_chunks)
+                                        "total_chunks_on_page": len(text_chunks),
+                                        "has_financial_data": len(financial_data.data_points) > 0
                                     }
                                 )
                                 chunks.append(chunk)
@@ -158,7 +166,9 @@ class PDFProcessor(IDocumentProcessor):
         if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
-    def process_document(
+        return chunks
+
+    def process_documents(
         self,
         document_paths: list[str]
     ) -> list[DocumentChunk]:
@@ -178,11 +188,13 @@ class PDFProcessor(IDocumentProcessor):
         for doc_path in document_paths:
             try:
                 chunks = self._process_single_document(doc_path)
-                all_chunks.append(chunks)
+                all_chunks.extend(chunks)
             except Exception as e:
                 raise DocumentProcessingError(
                     f"Failed to process document {doc_path}: {str(e)}"
                 )
+
+        return all_chunks
             
     def extract_metadata(
         self,
