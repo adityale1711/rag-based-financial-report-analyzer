@@ -166,10 +166,18 @@ class UIComponents:
             for question in example_questions:
                 st.write(f"• {question}")
 
+        # Initialize session state for question submission
+        if 'submit_question' not in st.session_state:
+            st.session_state.submit_question = False
+
+        def submit_question():
+            st.session_state.submit_question = True
+
         question = st.text_input(
             label="Enter your question:",
             placeholder="E.g., Show the top 10 products by sales",
-            key="question_input"
+            key="question_input",
+            on_change=submit_question
         )
 
         return question

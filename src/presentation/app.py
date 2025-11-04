@@ -128,36 +128,52 @@ OPENAI_API_KEY=your-openai-api-key-here
         if "analysis_result" not in st.session_state:
             st.session_state.analysis_result = None
 
-        # Render question input
+        # Initialize session state for question input
+        if "question_input" not in st.session_state:
+            st.session_state.question_input = ""
+
+        # Render question input section
         question = UIComponents.render_question_input()
 
-        # Submit question button
-        if st.button("Submit Question", type="primary", disabled=not question.strip()):
-            if question.strip():
-                # Clear previous result
-                st.session_state.analysis_result = None
+        # Get current question from session state
+        current_question = st.session_state.question_input
 
-                # Show loading indicator
-                loading_placeholder = st.empty()
-                loading_placeholder.info("⏳ Processing your question, please wait...")
+        # Submit question button - always enabled, with validation in processing
+        button_submitted = st.button("Submit Question", type="primary")
 
-                try:
-                    # Process the question asynchronously
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    result = loop.run_until_complete(
-                        self.process_question_use_case.execute(question)
-                    )
-                    loop.close()
+        # Check if question was submitted via Enter key (on_change callback)
+        enter_submitted = st.session_state.get('submit_question', False)
 
-                    # Store the result in session state
-                    st.session_state.analysis_result = result
-                except Exception as e:
-                    st.error(f"An error occurred while processing your question: {str(e)}")
-                finally:
-                    loading_placeholder.empty()
-            else:
-                st.warning("⚠️ Please enter a question before analyzing.")
+        # Process question when either Enter is pressed or button is clicked
+        if (enter_submitted or button_submitted) and current_question.strip():
+            # Reset the submission flag
+            st.session_state.submit_question = False
+
+            # Clear previous result
+            st.session_state.analysis_result = None
+
+            # Show loading indicator
+            loading_placeholder = st.empty()
+            loading_placeholder.info("⏳ Processing your question, please wait...")
+
+            try:
+                # Process the question asynchronously
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(
+                    self.process_question_use_case.execute(current_question)
+                )
+                loop.close()
+
+                # Store the result in session state
+                st.session_state.analysis_result = result
+            except Exception as e:
+                st.error(f"An error occurred while processing your question: {str(e)}")
+            finally:
+                loading_placeholder.empty()
+        elif (enter_submitted or button_submitted) and not current_question.strip():
+            st.warning("⚠️ Please enter a question before analyzing.")
+            st.session_state.submit_question = False
         
         # Display results if available
         if st.session_state.analysis_result:
