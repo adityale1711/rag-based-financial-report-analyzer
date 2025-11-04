@@ -17,32 +17,26 @@ except ImportError:
 class Config:
     """Simplified configuration class with flat key structure."""
 
-    # OpenAI Configuration
+    # Required fields (no defaults) - must come first
     openai_api_key: str
-    llm_model: str
-    embedding_model: str
-    llm_temperature: float
-    max_completion_tokens: int
-    max_tokens: int
-
-    # Database Configuration
     persist_directory: str
     chroma_db_collection_name: str
-
-    # File Paths
     rag_answer_prompt_path: str
     rag_prompt_path: str
     log_dir: str
     log_file_name: str
     document_paths: List[str]
-
-    # URL-based Data Loading
-    data_url: Optional[str] = None
-    zip_password: Optional[str] = None
-
-    # RAG Configuration
+    llm_model: str
+    embedding_model: str
+    llm_temperature: float
+    max_completion_tokens: int
+    max_tokens: int
     default_confidence_score: float
     min_confidence_score: float
+
+    # Optional fields (with defaults) - must come last
+    data_url: Optional[str] = None
+    zip_password: Optional[str] = None
 
     def __post_init__(self):
         """Validate configuration after initialization."""
