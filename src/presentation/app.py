@@ -1,4 +1,5 @@
 import os
+import signal
 import asyncio
 import streamlit as st
 from .ui_components import UIComponents
@@ -45,10 +46,23 @@ class StreamlitApp:
         if not self.rag_service.is_initialized():
             with st.spinner("🔄 Initializing RAG system with financial documents..."):
                 try:
-                    # Get document paths (including URL-based loading if configured)
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("Document loading timed out")
+
+                    # Set a 30-second timeout for document loading
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(30)
+
                     try:
                         document_paths = URLDataLoader.get_document_paths()
+                        signal.alarm(0)  # Cancel the alarm
+                    except TimeoutError:
+                        signal.alarm(0)  # Cancel the alarm
+                        st.error("❌ Document loading timed out. This might be due to network issues or large file downloads.")
+                        st.info("💡 Try refreshing the page or check your internet connection.")
+                        return
                     except Exception as e:
+                        signal.alarm(0)  # Cancel the alarm
                         st.error(f"❌ Failed to load documents: {str(e)}")
                         return
 

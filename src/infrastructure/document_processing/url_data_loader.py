@@ -39,15 +39,20 @@ class URLDataLoader:
             raise ValueError(f"Unsupported Google Drive URL format: {url}")
 
     @staticmethod
-    def download_file(url: str, timeout: int = 300) -> bytes:
-        """Download file from URL with progress tracking."""
+    def download_file(url: str, timeout: int = 60) -> bytes:
+        """Download file from URL with progress tracking and robust error handling."""
         try:
             # Convert Google Drive URL if needed
             if URLDataLoader.is_google_drive_url(url):
                 url = URLDataLoader.convert_google_drive_url(url)
 
-            # Download file with progress tracking
-            response = requests.get(url, stream=True, timeout=timeout)
+            # Configure headers to avoid potential issues
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+
+            # Download file with progress tracking and better error handling
+            response = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
             response.raise_for_status()
 
             total_size = int(response.headers.get('content-length', 0))
@@ -70,10 +75,16 @@ class URLDataLoader:
 
             return bytes(content)
 
+        except requests.exceptions.Timeout:
+            raise Exception(f"Download timeout after {timeout} seconds. The file might be too large or the server is slow to respond.")
+        except requests.exceptions.ConnectionError:
+            raise Exception(f"Connection error while downloading from {url}. Please check the URL and your internet connection.")
+        except requests.exceptions.HTTPError as e:
+            raise Exception(f"HTTP error {e.response.status_code} while downloading from {url}. The file might not be publicly accessible.")
         except requests.exceptions.RequestException as e:
             raise Exception(f"Failed to download file from {url}: {str(e)}")
         except Exception as e:
-            raise Exception(f"Error downloading file: {str(e)}")
+            raise Exception(f"Unexpected error downloading file: {str(e)}")
 
     @staticmethod
     def extract_zip_files(zip_content: bytes, password: Optional[str] = None, extract_to: str = "/tmp") -> List[str]:
@@ -117,23 +128,46 @@ class URLDataLoader:
             List of paths to extracted PDF files
         """
         try:
-            # Download the file
-            st.info("📥 Downloading data...")
-            zip_content = URLDataLoader.download_file(url)
+            # Validate URL before attempting download
+            if not url or not url.strip():
+                raise Exception("URL is empty or invalid")
+
+            # Show download status
+            if STREAMLIT_AVAILABLE and st:
+                st.info("📥 Downloading data from URL...")
+
+            # Download the file with shorter timeout for cloud deployment
+            zip_content = URLDataLoader.download_file(url, timeout=30)
+
+            if not zip_content:
+                raise Exception("Downloaded file is empty")
+
+            # Show extraction status
+            if STREAMLIT_AVAILABLE and st:
+                st.info("📂 Extracting ZIP file...")
 
             # Extract ZIP file
-            st.info("📂 Extracting ZIP file...")
             extracted_files = URLDataLoader.extract_zip_files(zip_content, password, extract_to)
 
             if not extracted_files:
                 raise Exception("No PDF files found in the downloaded ZIP file")
 
-            st.success(f"✅ Successfully extracted {len(extracted_files)} PDF files")
+            # Show success status
+            if STREAMLIT_AVAILABLE and st:
+                st.success(f"✅ Successfully extracted {len(extracted_files)} PDF files")
+
             return extracted_files
 
         except Exception as e:
-            st.error(f"❌ Failed to load data from URL: {str(e)}")
-            raise
+            # Show error status 
+            if STREAMLIT_AVAILABLE and st:
+                st.error(f"❌ Failed to load data from URL: {str(e)}")
+
+            # log the error but not crash the app
+            print(f"URL Data Loading Error: {str(e)}")
+            
+            # Return empty list instead of raising to allow fallback to local files
+            return []
 
     @staticmethod
     def get_document_paths() -> List[str]:
@@ -155,11 +189,30 @@ class URLDataLoader:
                     extract_to="/tmp/financial_documents"
                 )
                 document_paths.extend(downloaded_paths)
+
+                # Log successful URL loading
+                print(f"Successfully loaded {len(downloaded_paths)} documents from URL")
             except Exception as e:
-                st.error(f"Failed to load documents from URL: {str(e)}")
-                # Fall back to local documents if available
+                # Log error but don't crash - fall back to local documents
+                print(f"Warning: Failed to load documents from URL: {str(e)}")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning(f"⚠️ Could not load documents from URL, falling back to local files")
 
         # Add locally configured document paths
         document_paths.extend(config.document_paths)
 
-        return document_paths
+        # Filter to only existing files to avoid errors
+        existing_paths = []
+        for path in document_paths:
+            if os.path.exists(path):
+                existing_paths.append(path)
+            else:
+                print(f"Warning: Document not found: {path}")
+
+        # If no documents found and we were trying to load from URL, provide a helpful message
+        if not existing_paths and config.data_url:
+            if STREAMLIT_AVAILABLE and st:
+                st.error("❌ No financial documents found. The URL download may have failed or the documents may not be accessible.")
+                st.info("💡 Please check your Google Drive sharing settings or ensure the ZIP file contains PDF documents.")
+
+        return existing_paths
