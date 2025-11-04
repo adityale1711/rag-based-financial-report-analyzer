@@ -9,8 +9,18 @@ try:
     import streamlit.runtime.scriptrunner as scriptrunner
     import streamlit.secrets as secrets
     STREAMLIT_AVAILABLE = True
+
+    # Check if we're running in Streamlit Cloud by testing if secrets exist
+    try:
+        _ = secrets.items()
+        STREAMLIT_CLOUD = True
+    except Exception:
+        STREAMLIT_CLOUD = False
+
 except ImportError:
     STREAMLIT_AVAILABLE = False
+    STREAMLIT_CLOUD = False
+    secrets = None
 
 
 @dataclass
@@ -88,12 +98,8 @@ class Config:
         self._validate_paths()
 
     def _validate_paths(self) -> None:
-        """Validate that required paths and files exist."""
-        # For cloud deployment, we'll skip strict file existence checks
-        # as files will be available during deployment
-
-        # Check if prompt files exist (only for local development)
-        if not STREAMLIT_AVAILABLE:
+        """Validate that required paths and files exist."""# Check if prompt files exist (only for local development, not Streamlit Cloud)
+        if not STREAMLIT_CLOUD:
             if not os.path.exists(self.rag_answer_prompt_path):
                 raise ValueError(f"RAG answer prompt file not found: {self.rag_answer_prompt_path}")
 
@@ -121,20 +127,64 @@ class ConfigLoader:
     @staticmethod
     def _get_env_value(key: str, default: str = '') -> str:
         """Get configuration value from environment or Streamlit secrets."""
-        # Try Streamlit secrets first (for deployment)
-        if STREAMLIT_AVAILABLE:
+        
+        # Try Streamlit secrets first (for Streamlit Cloud deployment)
+        if STREAMLIT_CLOUD and secrets:
             try:
-                if hasattr(secrets, key):
+                # Handle nested structure in secrets.toml
+                # Check for direct key access first
+                if key in secrets:
                     return secrets[key]
-                # Also check nested keys in secrets
-                for secret_key, secret_value in secrets.items():
-                    if isinstance(secret_value, dict) and key in secret_value:
-                        return secret_value[key]
-            except Exception:
+
+                # Check nested structures (e.g., [openai] api_key)
+                for section_name, section_data in secrets.items():
+                    if isinstance(section_data, dict) and key.lower() in section_data:
+                        return section_data[key.lower()]
+
+                    # Handle specific mappings for nested structures
+                    key_mapping = {
+                        'OPENAI_API_KEY': ('openai', 'api_key'),
+                        'DATA_URL': ('data', 'url'),
+                        'ZIP_PASSWORD': ('data', 'zip_password'),
+                        'PERSIST_DIRECTORY': ('paths', 'persist_directory'),
+                        'CHROMA_DB_COLLECTION_NAME': ('paths', 'chroma_db_collection_name') or ('chroma', 'collection_name'),
+                        'RAG_ANSWER_PROMPT_PATH': ('paths', 'rag_answer_prompt_path'),
+                        'RAG_PROMPT_PATH': ('paths', 'rag_prompt_path'),
+                        'LOG_DIR': ('paths', 'log_dir'),
+                        'LOG_FILE_NAME': ('paths', 'log_file_name'),
+                        'LLM_MODEL': ('llm', 'model'),
+                        'LLM_TEMPERATURE': ('llm', 'temperature'),
+                        'MAX_COMPLETION_TOKENS': ('llm', 'max_completion_tokens'),
+                        'MAX_TOKENS': ('llm', 'max_tokens'),
+                        'EMBEDDING_MODEL': ('embedding', 'model'),
+                        'DEFAULT_CONFIDENCE_SCORE': ('rag', 'default_confidence_score'),
+                        'MIN_CONFIDENCE_SCORE': ('rag', 'min_confidence_score')
+                    }
+
+                    if key in key_mapping:
+                        section, nested_key = key_mapping[key]
+                        if section_name == section and isinstance(section_data, dict) and nested_key in section_data:
+                            return section_data[nested_key]
+
+            except Exception as e:
+                # Log the error for debugging but continue to fallback
+                print(f"Warning: Failed to read Streamlit secrets for key '{key}': {e}")
                 pass  # Fallback to environment variables
 
         # Fall back to environment variables (for local development)
-        return os.getenv(key, default)
+        env_value = os.getenv(key, default)
+        return env_value
+
+    @staticmethod
+    def get_config_source() -> str:
+        """Get the current configuration source being used."""
+        if STREAMLIT_CLOUD and secrets:
+            try:
+                _ = secrets.items()  # Test if secrets are accessible
+                return "Streamlit Cloud Secrets"
+            except Exception:
+                pass
+        return "Environment Variables (.env)"
 
     @staticmethod
     def load() -> Config:
