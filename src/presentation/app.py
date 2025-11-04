@@ -1,7 +1,9 @@
 import os
-import signal
 import asyncio
 import streamlit as st
+import time
+from threading import Thread
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from .ui_components import UIComponents
 from ..application.services.rag_service import RAGService
 from ..infrastructure.external.openai_client import OpenAIClient
@@ -46,25 +48,20 @@ class StreamlitApp:
         if not self.rag_service.is_initialized():
             with st.spinner("🔄 Initializing RAG system with financial documents..."):
                 try:
-                    def timeout_handler(signum, frame):
-                        raise TimeoutError("Document loading timed out")
+                    # Use thread-based timeout instead of signal
+                    def load_documents_with_timeout():
+                        """Load documents within a separate thread."""
+                        return URLDataLoader.get_document_paths()
 
-                    # Set a 30-second timeout for document loading
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(30)
-
-                    try:
-                        document_paths = URLDataLoader.get_document_paths()
-                        signal.alarm(0)  # Cancel the alarm
-                    except TimeoutError:
-                        signal.alarm(0)  # Cancel the alarm
-                        st.error("❌ Document loading timed out. This might be due to network issues or large file downloads.")
-                        st.info("💡 Try refreshing the page or check your internet connection.")
-                        return
-                    except Exception as e:
-                        signal.alarm(0)  # Cancel the alarm
-                        st.error(f"❌ Failed to load documents: {str(e)}")
-                        return
+                    # Execute document loading with timeout using ThreadPoolExecutor
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(load_documents_with_timeout)
+                        try:
+                            document_paths = future.result(timeout=30)  # 30-second timeout
+                        except FutureTimeoutError:
+                            st.error("❌ Document loading timed out. This might be due to network issues or large file downloads.")
+                            st.info("💡 Try refreshing the page or check your internet connection.")
+                            return
 
                     # Check if documents exist
                     existing_docs = []
@@ -78,7 +75,7 @@ class StreamlitApp:
                         st.error("❌ No financial documents found. \n" \
                         "Please ensure PDF documents are placed in the configured document paths or check the DATA_URL configuration.")
                         return
-                    
+
                     # Initialize RAG Service
                     self.rag_service.initialize(existing_docs)
 
