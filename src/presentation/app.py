@@ -8,6 +8,7 @@ from ..infrastructure.visualization.plotly_chart import PlotlyChartGenerator
 from ..infrastructure.vector_store.chromadb_store import ChromaDBStore
 from ..application.use_cases.process_question_use_case import ProcessQuestionUseCase
 from ..infrastructure.document_processing.pdf_processor import PDFProcessor
+from ..infrastructure.document_processing.url_data_loader import URLDataLoader
 from ..config import get_config
 
 
@@ -36,7 +37,7 @@ class StreamlitApp:
             chart_generator=self.chart_generator
         )
 
-        # Store document paths from config
+        # Store document paths from config (will handle URL loading if needed)
         self.document_paths = config.document_paths
 
     def _initialize_rag_system(self) -> None:
@@ -44,8 +45,12 @@ class StreamlitApp:
         if not self.rag_service.is_initialized():
             with st.spinner("🔄 Initializing RAG system with financial documents..."):
                 try:
-                    # Get PDF document paths from config
-                    document_paths = self.document_paths
+                    # Get document paths (including URL-based loading if configured)
+                    try:
+                        document_paths = URLDataLoader.get_document_paths()
+                    except Exception as e:
+                        st.error(f"❌ Failed to load documents: {str(e)}")
+                        return
 
                     # Check if documents exist
                     existing_docs = []
@@ -57,7 +62,7 @@ class StreamlitApp:
 
                     if not existing_docs:
                         st.error("❌ No financial documents found. \n" \
-                        "Please ensure PDF documents are placed in the configured document paths.")
+                        "Please ensure PDF documents are placed in the configured document paths or check the DATA_URL configuration.")
                         return
                     
                     # Initialize RAG Service

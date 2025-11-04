@@ -1,9 +1,16 @@
 """Centralized configuration management with validation."""
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 from dotenv import load_dotenv
+
+try:
+    import streamlit.runtime.scriptrunner as scriptrunner
+    import streamlit.secrets as secrets
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
 
 
 @dataclass
@@ -32,6 +39,10 @@ class Config:
     # RAG Configuration
     default_confidence_score: float
     min_confidence_score: float
+
+    # URL-based Data Loading (optional fields at the end)
+    data_url: Optional[str] = None
+    zip_password: Optional[str] = None
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -97,38 +108,60 @@ class ConfigLoader:
     """Configuration loader with environment variable support."""
 
     @staticmethod
+    def _get_env_value(key: str, default: str = '') -> str:
+        """Get configuration value from environment or Streamlit secrets."""
+        # Try Streamlit secrets first (for deployment)
+        if STREAMLIT_AVAILABLE:
+            try:
+                if hasattr(secrets, key):
+                    return secrets[key]
+                # Also check nested keys in secrets
+                for secret_key, secret_value in secrets.items():
+                    if isinstance(secret_value, dict) and key in secret_value:
+                        return secret_value[key]
+            except Exception:
+                pass  # Fallback to environment variables
+
+        # Fall back to environment variables (for local development)
+        return os.getenv(key, default)
+
+    @staticmethod
     def load() -> Config:
-        """Load configuration from environment variables."""
-        # Load environment variables from .env file
+        """Load configuration from environment variables or Streamlit secrets."""
+        # Load environment variables from .env file for local development
         load_dotenv()
 
         # Parse document paths from comma-separated string
-        document_paths_str = os.getenv('DOCUMENT_PATHS', '')
+        document_paths_str = ConfigLoader._get_env_value('DOCUMENT_PATHS', '')
         document_paths = [path.strip() for path in document_paths_str.split(',') if path.strip()]
 
         return Config(
             # Database Configuration
-            persist_directory=os.getenv('PERSIST_DIRECTORY', ''),
-            chroma_db_collection_name=os.getenv('CHROMA_DB_COLLECTION_NAME', 'financial_documents'),
+            persist_directory=ConfigLoader._get_env_value('PERSIST_DIRECTORY', ''),
+            chroma_db_collection_name=ConfigLoader._get_env_value('CHROMA_DB_COLLECTION_NAME', 'financial_documents'),
 
             # File Paths
-            rag_answer_prompt_path=os.getenv('RAG_ANSWER_PROMPT_PATH', ''),
-            rag_prompt_path=os.getenv('RAG_PROMPT_PATH', ''),
-            log_dir=os.getenv('LOG_DIR', ''),
-            log_file_name=os.getenv('LOG_FILE_NAME', ''),
+            rag_answer_prompt_path=ConfigLoader._get_env_value('RAG_ANSWER_PROMPT_PATH', ''),
+            rag_prompt_path=ConfigLoader._get_env_value('RAG_PROMPT_PATH', ''),
+            log_dir=ConfigLoader._get_env_value('LOG_DIR', ''),
+            log_file_name=ConfigLoader._get_env_value('LOG_FILE_NAME', ''),
             document_paths=document_paths,
 
             # OpenAI Configuration
-            openai_api_key=os.getenv('OPENAI_API_KEY', ''),
-            llm_model=os.getenv('LLM_MODEL', 'gpt-4o'),
-            embedding_model=os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small'),
-            llm_temperature=float(os.getenv('LLM_TEMPERATURE', '0.1')),
-            max_completion_tokens=int(os.getenv('MAX_COMPLETION_TOKENS', '2000')),
-            max_tokens=int(os.getenv('MAX_TOKENS', '2000')),
+            openai_api_key=ConfigLoader._get_env_value('OPENAI_API_KEY', ''),
+            llm_model=ConfigLoader._get_env_value('LLM_MODEL', 'gpt-4o'),
+            embedding_model=ConfigLoader._get_env_value('EMBEDDING_MODEL', 'text-embedding-3-small'),
+            llm_temperature=float(ConfigLoader._get_env_value('LLM_TEMPERATURE', '0.1')),
+            max_completion_tokens=int(ConfigLoader._get_env_value('MAX_COMPLETION_TOKENS', '2000')),
+            max_tokens=int(ConfigLoader._get_env_value('MAX_TOKENS', '2000')),
 
             # RAG Configuration
-            default_confidence_score=float(os.getenv('DEFAULT_CONFIDENCE_SCORE', '0.85')),
-            min_confidence_score=float(os.getenv('MIN_CONFIDENCE_SCORE', '0.1'))
+            default_confidence_score=float(ConfigLoader._get_env_value('DEFAULT_CONFIDENCE_SCORE', '0.85')),
+            min_confidence_score=float(ConfigLoader._get_env_value('MIN_CONFIDENCE_SCORE', '0.1')),
+
+            # URL-based Data Loading
+            data_url=ConfigLoader._get_env_value('DATA_URL') or None,
+            zip_password=ConfigLoader._get_env_value('ZIP_PASSWORD') or None
         )
 
 
