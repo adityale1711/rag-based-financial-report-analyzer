@@ -62,7 +62,10 @@ class Config:
         """Validate all configuration values."""
         # Validate required fields (only API key is strictly required)
         if not self.openai_api_key:
-            raise ValueError("OpenAI API key is required")
+            if STREAMLIT_CLOUD:
+                raise ValueError("OpenAI API key is required. Please check your Streamlit Cloud secrets.toml file and ensure [openai] api_key is properly configured.")
+            else:
+                raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.")
 
         # Validate numeric ranges
         if not 0.0 <= self.llm_temperature <= 2.0:
@@ -127,44 +130,50 @@ class ConfigLoader:
     @staticmethod
     def _get_env_value(key: str, default: str = '') -> str:
         """Get configuration value from environment or Streamlit secrets."""
-        
+
         # Try Streamlit secrets first (for Streamlit Cloud deployment)
         if STREAMLIT_CLOUD and secrets:
             try:
-                # Handle nested structure in secrets.toml
-                # Check for direct key access first
+                # Handle specific mappings for nested structures first
+                key_mapping = {
+                    'OPENAI_API_KEY': ('openai', 'api_key'),
+                    'DATA_URL': ('data', 'url'),
+                    'ZIP_PASSWORD': ('data', 'zip_password'),
+                    'PERSIST_DIRECTORY': ('paths', 'persist_directory'),
+                    'CHROMA_DB_COLLECTION_NAME': ('chroma', 'collection_name'),
+                    'RAG_ANSWER_PROMPT_PATH': ('paths', 'rag_answer_prompt_path'),
+                    'RAG_PROMPT_PATH': ('paths', 'rag_prompt_path'),
+                    'LOG_DIR': ('paths', 'log_dir'),
+                    'LOG_FILE_NAME': ('paths', 'log_file_name'),
+                    'LLM_MODEL': ('llm', 'model'),
+                    'LLM_TEMPERATURE': ('llm', 'temperature'),
+                    'MAX_COMPLETION_TOKENS': ('llm', 'max_completion_tokens'),
+                    'MAX_TOKENS': ('llm', 'max_tokens'),
+                    'EMBEDDING_MODEL': ('embedding', 'model'),
+                    'DEFAULT_CONFIDENCE_SCORE': ('rag', 'default_confidence_score'),
+                    'MIN_CONFIDENCE_SCORE': ('rag', 'min_confidence_score')
+                }
+
+                # Check if key has a specific mapping
+                if key in key_mapping:
+                    section, nested_key = key_mapping[key]
+                    if section in secrets and isinstance(secrets[section], dict):
+                        if nested_key in secrets[section]:
+                            value = secrets[section][nested_key]
+                            if value:
+                                print(f"Found {key} in secrets.{section}.{nested_key}: {value[:20]}...")
+                                return value
+                            else:
+                                print(f"Warning: secrets.{section}.{nested_key} exists but is empty")
+
+                # Check direct key access as fallback
                 if key in secrets:
-                    return secrets[key]
+                    value = secrets[key]
+                    if value:
+                        print(f"Found {key} directly in secrets: {value[:20]}...")
+                        return value
 
-                # Check nested structures (e.g., [openai] api_key)
-                for section_name, section_data in secrets.items():
-                    if isinstance(section_data, dict) and key.lower() in section_data:
-                        return section_data[key.lower()]
-
-                    # Handle specific mappings for nested structures
-                    key_mapping = {
-                        'OPENAI_API_KEY': ('openai', 'api_key'),
-                        'DATA_URL': ('data', 'url'),
-                        'ZIP_PASSWORD': ('data', 'zip_password'),
-                        'PERSIST_DIRECTORY': ('paths', 'persist_directory'),
-                        'CHROMA_DB_COLLECTION_NAME': ('paths', 'chroma_db_collection_name') or ('chroma', 'collection_name'),
-                        'RAG_ANSWER_PROMPT_PATH': ('paths', 'rag_answer_prompt_path'),
-                        'RAG_PROMPT_PATH': ('paths', 'rag_prompt_path'),
-                        'LOG_DIR': ('paths', 'log_dir'),
-                        'LOG_FILE_NAME': ('paths', 'log_file_name'),
-                        'LLM_MODEL': ('llm', 'model'),
-                        'LLM_TEMPERATURE': ('llm', 'temperature'),
-                        'MAX_COMPLETION_TOKENS': ('llm', 'max_completion_tokens'),
-                        'MAX_TOKENS': ('llm', 'max_tokens'),
-                        'EMBEDDING_MODEL': ('embedding', 'model'),
-                        'DEFAULT_CONFIDENCE_SCORE': ('rag', 'default_confidence_score'),
-                        'MIN_CONFIDENCE_SCORE': ('rag', 'min_confidence_score')
-                    }
-
-                    if key in key_mapping:
-                        section, nested_key = key_mapping[key]
-                        if section_name == section and isinstance(section_data, dict) and nested_key in section_data:
-                            return section_data[nested_key]
+                print(f"Warning: {key} not found in Streamlit secrets")
 
             except Exception as e:
                 # Log the error for debugging but continue to fallback
@@ -173,6 +182,10 @@ class ConfigLoader:
 
         # Fall back to environment variables (for local development)
         env_value = os.getenv(key, default)
+        if env_value:
+            print(f"Using {key} from environment variables")
+        else:
+            print(f"Warning: {key} not found in environment variables either")
         return env_value
 
     @staticmethod
@@ -180,9 +193,13 @@ class ConfigLoader:
         """Get the current configuration source being used."""
         if STREAMLIT_CLOUD and secrets:
             try:
-                _ = secrets.items()  # Test if secrets are accessible
+                secrets_dict = dict(secrets.items())
+                print(f"Available secret sections: {list(secrets_dict.keys())}")
+                if 'openai' in secrets_dict:
+                    print(f"OpenAI section keys: {list(secrets_dict['openai'].keys())}")
                 return "Streamlit Cloud Secrets"
-            except Exception:
+            except Exception as e:
+                print(f"Error accessing secrets: {e}")
                 pass
         return "Environment Variables (.env)"
 

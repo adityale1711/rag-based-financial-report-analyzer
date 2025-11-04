@@ -10,7 +10,7 @@ from ..infrastructure.vector_store.chromadb_store import ChromaDBStore
 from ..application.use_cases.process_question_use_case import ProcessQuestionUseCase
 from ..infrastructure.document_processing.pdf_processor import PDFProcessor
 from ..infrastructure.document_processing.url_data_loader import URLDataLoader
-from ..config import get_config
+from ..config import get_config, ConfigLoader
 
 
 class StreamlitApp:
@@ -105,11 +105,23 @@ class StreamlitApp:
         # Check the API key
         config = get_config()
         if not config.openai_api_key:
-            st.error("OpenAI API key is not set. Please set the OPENAI_API_KEY environment variable.")
-            st.info("To set up the API key:")
-            st.code(
-                "1. Copy .env.example to .env\n2. Add your OpenAI API key to the .env file"
-            )
+            st.error("❌ OpenAI API key is not configured.")
+            st.info("🔧 To set up the API key:")
+
+            if ConfigLoader.get_config_source() == "Streamlit Cloud Secrets":
+                st.code("""
+[openai]
+api_key = "your-openai-api-key-here"
+                """)
+                st.info("💡 Add this to your Streamlit Cloud secrets.toml file")
+            else:
+                st.code("""
+# Copy .env.example to .env
+OPENAI_API_KEY=your-openai-api-key-here
+                """)
+                st.info("💡 Add your OpenAI API key to the .env file")
+
+            st.error("🚫 Cannot proceed without an OpenAI API key")
             return
         
         # Initialize RAG system with documents
