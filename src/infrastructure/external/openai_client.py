@@ -240,6 +240,53 @@ class OpenAIClient(ILLMProvider):
         except Exception as e:
             raise LLMProviderError(f": {str(e)}") from e
 
+    async def generate_rag_answer(
+        self,
+        rag_prompt: str
+    ) -> tuple[Answer, AnalyzeCode]:
+        """Generate an answer and analysis code using RAG context.
+
+        Args:
+            rag_prompt: The complete RAG prompt including context and question.
+
+        Returns:
+            A tuple containing the answer and generated analysis code.
+
+        Raises:
+            LLMProviderError: If the OpenAI API call fails.
+        """
+        try:
+            # Load the rag answer prompt template from the configured file path
+            with open('pprompts/infrastructure/external/rag_answer_prompt.txt', 'r') as file:
+                rag_system_prompt = file.read()
+            
+            #  Call the OpenAI API with the RAG prompt
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": rag_system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": rag_prompt
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=2000
+            )
+            response_text = response.choices[0].message.content
+
+            # Parse the response to extract answer and code
+            answer, analyze_code = self._parse_response(response_text)
+
+            return answer, analyze_code
+
+        except FileNotFoundError:
+            logger.error("Prompt file not found")
+            raise
+
     async def generate_answer_with_prompt(
         self,
         question: Question,

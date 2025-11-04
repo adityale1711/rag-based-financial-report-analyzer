@@ -1,0 +1,21 @@
+Question: {question.text}
+Language: {question.language}
+
+Dataset Information:
+- File: {dataset_info.filename}
+- Shape: {dataset_info.shape[0]} rows, {dataset_info.shape[1]} columns
+- Columns: {available_columns}
+- Column Types: {column_types_str}
+
+Sample Data (first 5 rows):
+{sample_data_str}
+
+Please analyze this question and provide a JSON response with the answer, confidence score, explanation, Python code, code description, and suggested visualization type.
+
+The code should:
+1. Use the DataFrame 'df' which is already available
+2. Perform the necessary analysis to answer the question
+3. Store the final result in a variable called 'result'
+4. Be executable and return meaningful data
+
+Focus on providing accurate analysis and clean, readable Python code.

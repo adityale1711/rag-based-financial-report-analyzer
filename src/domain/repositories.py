@@ -63,6 +63,24 @@ class ILLMProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    async def generate_rag_answer(
+        self,
+        rag_prompt: str
+    ) -> tuple[RAGAnswer, AnalyzeCode]:
+        """Generate an answer and analysis code using RAG context.
+
+        Args:
+            rag_prompt: The complete RAG prompt including context and question.
+
+        Returns:
+            A tuple containing the answer and generated analysis code.
+
+        Raises:
+            LLMProviderError: If the LLM provider fails to generate an answer.
+        """
+        pass
+
 
 class IDataRepository(ABC):
     """Interface for data access operations.
