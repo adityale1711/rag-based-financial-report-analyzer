@@ -1,7 +1,6 @@
 import os
 import asyncio
 import streamlit as st
-from dotenv import load_dotenv
 from .ui_components import UIComponents
 from ..application.services.rag_service import RAGService
 from ..infrastructure.external.openai_client import OpenAIClient
@@ -9,9 +8,7 @@ from ..infrastructure.visualization.plotly_chart import PlotlyChartGenerator
 from ..infrastructure.vector_store.chromadb_store import ChromaDBStore
 from ..application.use_cases.process_question_use_case import ProcessQuestionUseCase
 from ..infrastructure.document_processing.pdf_processor import PDFProcessor
-
-# Load environment variables from .env file
-load_dotenv()
+from ..config import get_config
 
 
 class StreamlitApp:
@@ -19,16 +16,12 @@ class StreamlitApp:
 
     def __init__(self):
         """Initialize the Streamlit application."""
+        config = get_config()
+
         # Initialize services and use case
-        self.llm_client = OpenAIClient(
-            api_key=os.getenv("OPENAI_API_KEY", ""),
-            model="gpt-4o"
-        )
+        self.llm_client = OpenAIClient()
         self.document_processor = PDFProcessor()
-        self.vector_store = ChromaDBStore(
-            embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
+        self.vector_store = ChromaDBStore()
         self.chart_generator = PlotlyChartGenerator()
 
         # Initialize RAG Service
@@ -43,17 +36,16 @@ class StreamlitApp:
             chart_generator=self.chart_generator
         )
 
+        # Store document paths from config
+        self.document_paths = config.document_paths
+
     def _initialize_rag_system(self) -> None:
         """Initialize the RAG system with financial documents."""
         if not self.rag_service.is_initialized():
             with st.spinner("🔄 Initializing RAG system with financial documents..."):
                 try:
-                    # Get PDF document paths
-                    document_paths = [
-                        "documents/20240913-laporan-keuangan-publikasi-bulanan-agustus-2024-ind.pdf",
-                        "documents/20241115-laporan-keuangan-publikasi-bulanan-oktober-2024-ind.pdf",
-                        "documents/20241213-laporan-keuangan-publikasi-bulanan-november-2024-ind.pdf"
-                    ]
+                    # Get PDF document paths from config
+                    document_paths = self.document_paths
 
                     # Check if documents exist
                     existing_docs = []
@@ -65,7 +57,7 @@ class StreamlitApp:
 
                     if not existing_docs:
                         st.error("❌ No financial documents found. \n" \
-                        "Please ensure PDF documents are placed in the 'documents' directory.")
+                        "Please ensure PDF documents are placed in the configured document paths.")
                         return
                     
                     # Initialize RAG Service
@@ -92,7 +84,8 @@ class StreamlitApp:
         )
 
         # Check the API key
-        if not os.getenv("OPENAI_API_KEY"):
+        config = get_config()
+        if not config.openai_api_key:
             st.error("OpenAI API key is not set. Please set the OPENAI_API_KEY environment variable.")
             st.info("To set up the API key:")
             st.code(

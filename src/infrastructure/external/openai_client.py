@@ -4,6 +4,7 @@ from ... import logger
 from openai import AsyncOpenAI
 from ...domain.entities import Question, RAGAnswer
 from ...domain.repositories import ILLMProvider, LLMProviderError
+from ...config import get_config
 
 
 class OpenAIClient(ILLMProvider):
@@ -13,15 +14,16 @@ class OpenAIClient(ILLMProvider):
     to generate answers and analysis code based on user questions.
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4-turbo"):
-        """Initialize the OpenAI client.
+    def __init__(self):
+        """Initialize the OpenAI client using configuration."""
+        config = get_config()
 
-        Args:
-            api_key: OpenAI API key.
-            model: OpenAI model to use for generation.
-        """
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = model
+        self.client = AsyncOpenAI(api_key=config.openai_api_key)
+        self.model = config.llm_model
+        self.temperature = config.llm_temperature
+        self.max_completion_tokens = config.max_completion_tokens
+        self.max_tokens = config.max_tokens
+        self.default_confidence_score = config.default_confidence_score
 
     def _extract_answer_text(
         self,
@@ -63,8 +65,10 @@ class OpenAIClient(ILLMProvider):
             LLMProviderError: If the OpenAI API call fails.
         """
         try:
+            config = get_config()
+
             # Load the rag answer prompt template from the configured file path
-            with open('prompts/infrastructure/external/rag_answer_prompt.txt', 'r') as file:
+            with open(config.rag_answer_prompt_path, 'r') as file:
                 rag_system_prompt = file.read()
 
             # Call the OpenAI API with the RAG prompt
@@ -81,14 +85,14 @@ class OpenAIClient(ILLMProvider):
                         "content": rag_prompt
                     }
                 ],
-                "temperature": 0.1
+                "temperature": self.temperature
             }
 
             # Add appropriate token limit parameter based on model
             if self.model.startswith("gpt-4o") or self.model.startswith("gpt-4-turbo") or self.model.startswith("o1"):
-                completion_params["max_completion_tokens"] = 2000
+                completion_params["max_completion_tokens"] = self.max_completion_tokens
             else:
-                completion_params["max_tokens"] = 2000
+                completion_params["max_tokens"] = self.max_tokens
 
             response = await self.client.chat.completions.create(**completion_params)
             response_text = response.choices[0].message.content
@@ -99,7 +103,7 @@ class OpenAIClient(ILLMProvider):
             # Create and return a RAGAnswer (sources will be added by the RAG service)
             return RAGAnswer(
                 text=answer_text,
-                confidence_score=0.85,  # Good confidence for natural language responses
+                confidence_score=self.default_confidence_score,
                 sources=[],  # Sources will be populated by the RAG service
                 explanation="Generated based on retrieved financial document context"
             )

@@ -1,5 +1,6 @@
 import streamlit as st
 from ..domain.entities import AnalysisResult, Visualization
+from ..config import get_config
 
 
 class UIComponents:
@@ -97,7 +98,8 @@ class UIComponents:
         with col1:
             st.caption(f"⏱️ Execution Time: {result.execution_time:.2f} seconds")
         with col2:
-            if result.rag_answer.confidence_score > 0.1:  # Successful analysis has reasonable confidence
+            config = get_config()
+            if result.rag_answer.confidence_score > config.min_confidence_score:  # Successful analysis has reasonable confidence
                 st.caption("✅ Analysis completed successfully")
             else:
                 st.caption("❌ Analysis failed")
@@ -181,7 +183,8 @@ class UIComponents:
         Args:
             analysis_result: The complete analysis result to display.
         """
-        if analysis_result.rag_answer.confidence_score <= 0.1:  # Error condition
+        config = get_config()
+        if analysis_result.rag_answer.confidence_score <= config.min_confidence_score:  # Error condition
             UIComponents._render_error(analysis_result)
 
         # Create three columns for the main results

@@ -5,6 +5,7 @@ from openai import OpenAI
 from ... import logger
 from ...domain.entities import DocumentChunk, RetrievalResult
 from ...domain.repositories import IVectorStore, VectorStoreError
+from ...config import get_config
 
 
 class ChromaDBStore(IVectorStore):
@@ -14,37 +15,20 @@ class ChromaDBStore(IVectorStore):
     chunks using ChromaDB and OpenAI embeddings for embeddings.
     """
 
-    def __init__(
-        self,
-        collection_name: str = "financial_documents",
-        persist_directory: str = "./chroma_db",
-        embedding_model: str = "text-embedding-3-small",
-        openai_api_key: str = None
-    ):
-        """Initialize the ChromaDB store.
+    def __init__(self):
+        """Initialize the ChromaDB store using configuration."""
+        config = get_config()
 
-        Args:
-            collection_name: Name of the ChromaDB collection.
-            persist_directory: Directory to persist the database.
-            embedding_model: Name of the OpenAI embedding model.
-            openai_api_key: OpenAI API key for embeddings.
-        """
-        self.collection_name = collection_name
-        self.persist_directory = persist_directory
-        self.embedding_model = embedding_model
+        self.collection_name = config.chroma_db_collection_name
+        self.persist_directory = config.persist_directory
+        self.embedding_model = config.embedding_model
 
         # Initialize the OpenAI client for embeddings
-        if not openai_api_key:
-            import os
-            openai_api_key = os.getenv('OPENAI_API_KEY')
-            if not openai_api_key:
-                raise ValueError("OpenAI API key must be provided or set in OPENAI_API_KEY environment variable")
-
-        self._embedding_client = OpenAI(api_key=openai_api_key)
+        self._embedding_client = OpenAI(api_key=config.openai_api_key)
 
         # Initialize ChromaDB client
         self._client = chromadb.PersistentClient(
-            path=persist_directory,
+            path=self.persist_directory,
             settings=Settings(
                 anonymized_telemetry=False,
                 allow_reset=True

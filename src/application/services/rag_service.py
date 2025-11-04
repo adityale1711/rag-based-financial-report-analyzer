@@ -13,6 +13,7 @@ from ...domain.repositories import (
     IVectorStore,
     RAGServiceError
 )
+from ...config import get_config
 
 
 class RAGService(IRAGService):
@@ -110,8 +111,10 @@ class RAGService(IRAGService):
             Complete RAG prompt.
         """
         try:
+            config = get_config()
+
             # Load the RAG prompt template from the configured file path
-            with open('prompts/application/services/rag_prompt.txt', 'r') as file:
+            with open(config.rag_prompt_path, 'r') as file:
                 prompt_template = file.read()
 
             financial_data = financial_data if financial_data else "No structured financial data available"
@@ -262,10 +265,12 @@ class RAGService(IRAGService):
 
             if not retrieval_result.chunks:
                 # No relevant documents found
+                config = get_config()
+
                 return RAGAnswer(
                     text=f"I'm sorry, but I couldn't find relevant information in the financial documents to answer your question about: '{question.text}'.\n"
                           f"Please try rephrasing your question or asking about specific financial figures or terms that might be in the documents.",
-                    confidence_score=0.1,
+                    confidence_score=config.min_confidence_score,
                     sources=[],
                     explanation="No relevant documents were retrieved."
                 )
