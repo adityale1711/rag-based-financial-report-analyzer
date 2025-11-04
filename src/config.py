@@ -1,31 +1,29 @@
-"""Centralized configuration management with validation."""
+"""Simplified centralized configuration management with flat key structure."""
 
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 try:
-    import streamlit.runtime.scriptrunner as scriptrunner
-    import streamlit.secrets as secrets
+    import streamlit as st
     STREAMLIT_AVAILABLE = True
-
-    # Check if we're running in Streamlit Cloud by testing if secrets exist
-    try:
-        _ = secrets.items()
-        STREAMLIT_CLOUD = True
-    except Exception:
-        STREAMLIT_CLOUD = False
-
 except ImportError:
     STREAMLIT_AVAILABLE = False
-    STREAMLIT_CLOUD = False
-    secrets = None
+    st = None
 
 
 @dataclass
 class Config:
-    """Centralized configuration class with validation."""
+    """Simplified configuration class with flat key structure."""
+
+    # OpenAI Configuration
+    openai_api_key: str
+    llm_model: str
+    embedding_model: str
+    llm_temperature: float
+    max_completion_tokens: int
+    max_tokens: int
 
     # Database Configuration
     persist_directory: str
@@ -38,21 +36,13 @@ class Config:
     log_file_name: str
     document_paths: List[str]
 
-    # OpenAI Configuration
-    openai_api_key: str
-    llm_model: str
-    embedding_model: str
-    llm_temperature: float
-    max_completion_tokens: int
-    max_tokens: int
+    # URL-based Data Loading
+    data_url: Optional[str] = None
+    zip_password: Optional[str] = None
 
     # RAG Configuration
     default_confidence_score: float
     min_confidence_score: float
-
-    # URL-based Data Loading (optional fields at the end)
-    data_url: Optional[str] = None
-    zip_password: Optional[str] = None
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -60,12 +50,11 @@ class Config:
 
     def _validate(self) -> None:
         """Validate all configuration values."""
-        # Validate required fields (only API key is strictly required)
+        # Validate required fields
         if not self.openai_api_key:
-            if STREAMLIT_CLOUD:
-                raise ValueError("OpenAI API key is required. Please check your Streamlit Cloud secrets.toml file and ensure [openai] api_key is properly configured.")
-            else:
-                raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.")
+            raise ValueError(
+                "OpenAI API key is required. Please set OPENAI_API_KEY in your .env file or Streamlit secrets."
+            )
 
         # Validate numeric ranges
         if not 0.0 <= self.llm_temperature <= 2.0:
@@ -83,38 +72,6 @@ class Config:
         if self.max_tokens <= 0:
             raise ValueError(f"Max tokens must be positive, got {self.max_tokens}")
 
-        # Set default values for missing fields (cloud-friendly)
-        if not self.persist_directory:
-            self.persist_directory = "/tmp/chroma_db"
-        if not self.chroma_db_collection_name:
-            self.chroma_db_collection_name = "financial_documents"
-        if not self.rag_answer_prompt_path:
-            self.rag_answer_prompt_path = "prompts/infrastructure/external/rag_answer_prompt.txt"
-        if not self.rag_prompt_path:
-            self.rag_prompt_path = "prompts/application/services/rag_prompt.txt"
-        if not self.log_dir:
-            self.log_dir = "/tmp/logs"
-        if not self.log_file_name:
-            self.log_file_name = "financial_analyzer.log"
-
-        # Validate and create directories
-        self._validate_paths()
-
-    def _validate_paths(self) -> None:
-        """Validate that required paths and files exist."""# Check if prompt files exist (only for local development, not Streamlit Cloud)
-        if not STREAMLIT_CLOUD:
-            if not os.path.exists(self.rag_answer_prompt_path):
-                raise ValueError(f"RAG answer prompt file not found: {self.rag_answer_prompt_path}")
-
-            if not os.path.exists(self.rag_prompt_path):
-                raise ValueError(f"RAG prompt file not found: {self.rag_prompt_path}")
-
-            # Check if document directory exists
-            if self.document_paths:
-                for doc_path in self.document_paths:
-                    if not os.path.exists(doc_path):
-                        raise ValueError(f"Document file not found: {doc_path}")
-
         # Create log directory if it doesn't exist
         os.makedirs(self.log_dir, exist_ok=True)
 
@@ -125,81 +82,41 @@ class Config:
 
 
 class ConfigLoader:
-    """Configuration loader with environment variable support."""
+    """Simplified configuration loader with flat key structure."""
 
     @staticmethod
-    def _get_env_value(key: str, default: str = '') -> str:
-        """Get configuration value from environment or Streamlit secrets."""
+    def _get_config_value(key: str, default=None):
+        """Get configuration value from Streamlit secrets or environment variables.
 
-        # Try Streamlit secrets first (for Streamlit Cloud deployment)
-        if STREAMLIT_CLOUD and secrets:
+        Args:
+            key: Configuration key
+            default: Default value if not found
+
+        Returns:
+            Configuration value
+        """
+        # Try Streamlit secrets first (for deployment)
+        if STREAMLIT_AVAILABLE:
             try:
-                # Handle specific mappings for nested structures first
-                key_mapping = {
-                    'OPENAI_API_KEY': ('openai', 'OPENAI_API_KEY'),
-                    'DATA_URL': ('data', 'DATA_URL'),
-                    'ZIP_PASSWORD': ('data', 'ZIP_PASSWORD'),
-                    'PERSIST_DIRECTORY': ('paths', 'PERSIST_DIRECTORY'),
-                    'CHROMA_DB_COLLECTION_NAME': ('chroma', 'CHROMA_DB_COLLECTION_NAME'),
-                    'RAG_ANSWER_PROMPT_PATH': ('paths', 'RAG_ANSWER_PROMPT_PATH'),
-                    'RAG_PROMPT_PATH': ('paths', 'RAG_PROMPT_PATH'),
-                    'LOG_DIR': ('paths', 'LOG_DIR'),
-                    'LOG_FILE_NAME': ('paths', 'LOG_FILE_NAME'),
-                    'LLM_MODEL': ('llm', 'LLM_MODEL'),
-                    'LLM_TEMPERATURE': ('llm', 'LLM_TEMPERATURE'),
-                    'MAX_COMPLETION_TOKENS': ('llm', 'MAX_COMPLETION_TOKENS'),
-                    'MAX_TOKENS': ('llm', 'MAX_TOKENS'),
-                    'EMBEDDING_MODEL': ('embedding', 'EMBEDDING_MODEL'),
-                    'DEFAULT_CONFIDENCE_SCORE': ('rag', 'DEFAULT_CONFIDENCE_SCORE'),
-                    'MIN_CONFIDENCE_SCORE': ('rag', 'MIN_CONFIDENCE_SCORE')
-                }
-
-                # Check if key has a specific mapping
-                if key in key_mapping:
-                    section, nested_key = key_mapping[key]
-                    if section in secrets and isinstance(secrets[section], dict):
-                        if nested_key in secrets[section]:
-                            value = secrets[section][nested_key]
-                            if value:
-                                print(f"Found {key} in secrets.{section}.{nested_key}: {value[:20]}...")
-                                return value
-                            else:
-                                print(f"Warning: secrets.{section}.{nested_key} exists but is empty")
-
-                # Check direct key access as fallback
-                if key in secrets:
-                    value = secrets[key]
-                    if value:
-                        print(f"Found {key} directly in secrets: {value[:20]}...")
-                        return value
-
-                print(f"Warning: {key} not found in Streamlit secrets")
-
-            except Exception as e:
-                # Log the error for debugging but continue to fallback
-                print(f"Warning: Failed to read Streamlit secrets for key '{key}': {e}")
-                pass  # Fallback to environment variables
+                value = st.secrets.get(key)
+                if value is not None:
+                    return value
+            except Exception:
+                pass
 
         # Fall back to environment variables (for local development)
-        env_value = os.getenv(key, default)
-        if env_value:
-            print(f"Using {key} from environment variables")
-        else:
-            print(f"Warning: {key} not found in environment variables either")
-        return env_value
+        return os.getenv(key, default)
 
     @staticmethod
     def get_config_source() -> str:
         """Get the current configuration source being used."""
-        if STREAMLIT_CLOUD and secrets:
+        if STREAMLIT_AVAILABLE:
             try:
-                secrets_dict = dict(secrets.items())
-                print(f"Available secret sections: {list(secrets_dict.keys())}")
-                if 'openai' in secrets_dict:
-                    print(f"OpenAI section keys: {list(secrets_dict['openai'].keys())}")
-                return "Streamlit Cloud Secrets"
-            except Exception as e:
-                print(f"Error accessing secrets: {e}")
+                # Test if we can access secrets
+                secrets_dict = dict(st.secrets.items())
+                if secrets_dict:
+                    return "Streamlit Cloud Secrets"
+            except Exception:
                 pass
         return "Environment Variables (.env)"
 
@@ -210,36 +127,36 @@ class ConfigLoader:
         load_dotenv()
 
         # Parse document paths from comma-separated string
-        document_paths_str = ConfigLoader._get_env_value('DOCUMENT_PATHS', '')
+        document_paths_str = ConfigLoader._get_config_value('DOCUMENT_PATHS', '')
         document_paths = [path.strip() for path in document_paths_str.split(',') if path.strip()]
 
         return Config(
+            # OpenAI Configuration
+            openai_api_key=ConfigLoader._get_config_value('OPENAI_API_KEY', ''),
+            llm_model=ConfigLoader._get_config_value('LLM_MODEL', 'gpt-4o'),
+            embedding_model=ConfigLoader._get_config_value('EMBEDDING_MODEL', 'text-embedding-3-small'),
+            llm_temperature=float(ConfigLoader._get_config_value('LLM_TEMPERATURE', '0.1')),
+            max_completion_tokens=int(ConfigLoader._get_config_value('MAX_COMPLETION_TOKENS', '2000')),
+            max_tokens=int(ConfigLoader._get_config_value('MAX_TOKENS', '2000')),
+
             # Database Configuration
-            persist_directory=ConfigLoader._get_env_value('PERSIST_DIRECTORY', ''),
-            chroma_db_collection_name=ConfigLoader._get_env_value('CHROMA_DB_COLLECTION_NAME', 'financial_documents'),
+            persist_directory=ConfigLoader._get_config_value('PERSIST_DIRECTORY', './data/chroma_db'),
+            chroma_db_collection_name=ConfigLoader._get_config_value('CHROMA_DB_COLLECTION_NAME', 'financial_documents'),
 
             # File Paths
-            rag_answer_prompt_path=ConfigLoader._get_env_value('RAG_ANSWER_PROMPT_PATH', ''),
-            rag_prompt_path=ConfigLoader._get_env_value('RAG_PROMPT_PATH', ''),
-            log_dir=ConfigLoader._get_env_value('LOG_DIR', ''),
-            log_file_name=ConfigLoader._get_env_value('LOG_FILE_NAME', ''),
+            rag_answer_prompt_path=ConfigLoader._get_config_value('RAG_ANSWER_PROMPT_PATH', './prompts/infrastructure/external/rag_answer_prompt.txt'),
+            rag_prompt_path=ConfigLoader._get_config_value('RAG_PROMPT_PATH', './prompts/application/services/rag_prompt.txt'),
+            log_dir=ConfigLoader._get_config_value('LOG_DIR', './logs'),
+            log_file_name=ConfigLoader._get_config_value('LOG_FILE_NAME', 'financial_analyzer.log'),
             document_paths=document_paths,
 
-            # OpenAI Configuration
-            openai_api_key=ConfigLoader._get_env_value('OPENAI_API_KEY', ''),
-            llm_model=ConfigLoader._get_env_value('LLM_MODEL', 'gpt-4o'),
-            embedding_model=ConfigLoader._get_env_value('EMBEDDING_MODEL', 'text-embedding-3-small'),
-            llm_temperature=float(ConfigLoader._get_env_value('LLM_TEMPERATURE', '0.1')),
-            max_completion_tokens=int(ConfigLoader._get_env_value('MAX_COMPLETION_TOKENS', '2000')),
-            max_tokens=int(ConfigLoader._get_env_value('MAX_TOKENS', '2000')),
+            # URL-based Data Loading
+            data_url=ConfigLoader._get_config_value('DATA_URL') or None,
+            zip_password=ConfigLoader._get_config_value('ZIP_PASSWORD') or None,
 
             # RAG Configuration
-            default_confidence_score=float(ConfigLoader._get_env_value('DEFAULT_CONFIDENCE_SCORE', '0.85')),
-            min_confidence_score=float(ConfigLoader._get_env_value('MIN_CONFIDENCE_SCORE', '0.1')),
-
-            # URL-based Data Loading
-            data_url=ConfigLoader._get_env_value('DATA_URL') or None,
-            zip_password=ConfigLoader._get_env_value('ZIP_PASSWORD') or None
+            default_confidence_score=float(ConfigLoader._get_config_value('DEFAULT_CONFIDENCE_SCORE', '0.85')),
+            min_confidence_score=float(ConfigLoader._get_config_value('MIN_CONFIDENCE_SCORE', '0.1'))
         )
 
 

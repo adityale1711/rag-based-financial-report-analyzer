@@ -110,8 +110,8 @@ class StreamlitApp:
 
             if ConfigLoader.get_config_source() == "Streamlit Cloud Secrets":
                 st.code("""
-[openai]
-api_key = "your-openai-api-key-here"
+# OpenAI Configuration
+OPENAI_API_KEY = "your-openai-api-key-here"
                 """)
                 st.info("💡 Add this to your Streamlit Cloud secrets.toml file")
             else:
